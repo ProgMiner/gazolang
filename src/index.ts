@@ -1,4 +1,4 @@
-import { emptyPosition, isPositionRange, Position } from './utils/Position';
+import { emptyPosition, isPositionRange, Position, textToPosition } from './utils/Position';
 import { parseError, PositionedError } from './utils/errors';
 import { evaluate, EvaluationContext } from './evaluate';
 import { parseProgram } from './ast/Program';
@@ -12,7 +12,8 @@ const evaluationContext: EvaluationContext<Position> = {
         confirm,
         'true': true,
         'false': false,
-        'if': (c: unknown, t: unknown, f: unknown) => {
+        'undefined': undefined,
+        'if': (c: unknown) => (t: unknown) => (f: unknown) => {
             if (c === true) {
                 return t;
             }
@@ -81,6 +82,16 @@ const evaluationContext: EvaluationContext<Position> = {
 
             return result;
         },
+        asArray: (value: (s: unknown) => (z: unknown) => () => unknown) => {
+            const result: unknown[] = [];
+
+            // hack with mutable array to improve performance and readability
+            value((v: unknown) => (acc: () => void) => { acc(); result.unshift(v); })(undefined)();
+            return result;
+        },
+        join: (sep: string) => (arr: unknown[]) => arr.join(sep),
+        '==': (a: unknown) => (b: unknown) => a === b,
+        '!=': (a: unknown) => (b: unknown) => a !== b,
     },
     names: {},
 };
@@ -95,8 +106,102 @@ const boot = () => {
 
     codeTextarea.value = localStorage.getItem("code") ?? "";
 
+    codeTextarea.onkeydown = (event) => {
+        if (event.key === 'Tab') {
+            const { value } = codeTextarea;
+
+            const absPos = codeTextarea.selectionStart;
+            const { column: pos } = textToPosition(value.substring(0, absPos));
+
+            const left = value.substring(0, absPos);
+            const right = value.substring(absPos);
+
+            codeTextarea.value = left + "    ".substring(pos % 4) + right;
+            codeTextarea.selectionStart = codeTextarea.selectionEnd = absPos + (4 - pos % 4);
+
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === 'Backspace' && event.ctrlKey) {
+            const { value } = codeTextarea;
+
+            const absPos = codeTextarea.selectionStart;
+            const { column: pos } = textToPosition(value.substring(0, absPos));
+
+            const begin = value.substring(0, absPos);
+            const trimmed = begin.trimEnd();
+
+            if (begin.length !== trimmed.length && pos > 0) {
+                const spacesLength = Math.min(begin.length - trimmed.length, pos);
+                const newPos = absPos - spacesLength;
+
+                codeTextarea.value = value.substring(0, newPos) + value.substring(absPos);
+                codeTextarea.selectionStart = codeTextarea.selectionEnd = newPos;
+
+                event.preventDefault();
+                return;
+            }
+        }
+
+        if (event.code === 'KeyZ' && event.ctrlKey) {
+            const undoStack: [string, number][] = JSON.parse(localStorage.getItem("undo") ?? "[]");
+            const redoStack: [string, number][] = JSON.parse(localStorage.getItem("redo") ?? "[]");
+
+            if (event.shiftKey) {
+                if (redoStack.length > 0) {
+                    const [value, pos] = redoStack.pop()!;
+                    undoStack.push([codeTextarea.value, codeTextarea.selectionStart]);
+
+                    codeTextarea.value = value;
+                    codeTextarea.selectionStart = codeTextarea.selectionEnd = pos;
+
+                    localStorage.setItem('code', value);
+                }
+            } else {
+                if (undoStack.length > 0) {
+                    const [value, pos] = undoStack.pop()!;
+                    redoStack.push([codeTextarea.value, codeTextarea.selectionStart]);
+
+                    codeTextarea.value = value;
+                    codeTextarea.selectionStart = codeTextarea.selectionEnd = pos;
+
+                    localStorage.setItem('code', value);
+                }
+            }
+
+            localStorage.setItem("undo", JSON.stringify(undoStack));
+            localStorage.setItem("redo", JSON.stringify(redoStack));
+
+            event.preventDefault();
+            return;
+        }
+    };
+
+    let lastCursorPosition = 0;
     codeTextarea.onkeyup = () => {
-        localStorage.setItem("code", codeTextarea.value);
+        const oldValue = localStorage.getItem("code") ?? "";
+        const value = codeTextarea.value;
+
+        if (oldValue !== value) {
+            localStorage.setItem("code", value);
+
+            const undoStack: [string, number][] = JSON.parse(localStorage.getItem("undo") ?? "[]");
+            undoStack.push([oldValue, lastCursorPosition]);
+
+            if (undoStack.length > 1000) {
+                undoStack.shift();
+            }
+
+            localStorage.setItem("undo", JSON.stringify(undoStack));
+            localStorage.removeItem("redo");
+        }
+
+        lastCursorPosition = codeTextarea.selectionStart;
+    };
+
+    codeTextarea.onclick = () => {
+        lastCursorPosition = codeTextarea.selectionStart;
     };
 
     runButton.onclick = () => {
@@ -108,7 +213,11 @@ const boot = () => {
                 throw parseError(restPosition);
             }
 
-            alert(evaluate(evaluationContext, program));
+            const result = evaluate(evaluationContext, program);
+
+            if (result !== undefined) {
+                alert(result);
+            }
         } catch (e) {
             if (e instanceof Error) {
                 alert(e.message);
