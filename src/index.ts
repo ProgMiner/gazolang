@@ -31,6 +31,7 @@ const evaluationContext: EvaluationContext<Position> = {
 
             return +x;
         },
+        toString: (x: unknown) => `${x}`,
         '+': (a: unknown) => (b: unknown) => {
             if (typeof a !== 'number' || typeof b !== 'number') {
                 throw new Error('argument of + must be a number');
@@ -189,7 +190,7 @@ const boot = () => {
             const undoStack: [string, number][] = JSON.parse(localStorage.getItem("undo") ?? "[]");
             undoStack.push([oldValue, lastCursorPosition]);
 
-            if (undoStack.length > 1000) {
+            if (undoStack.length > 100) {
                 undoStack.shift();
             }
 

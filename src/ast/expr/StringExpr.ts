@@ -14,9 +14,22 @@ export const parseStringValue = (input: string, position: Position): string => {
     const chars = [];
     let pos = 0;
 
-    let wasBackslash = false;
+    let uBuffer: string[] = [];
+    let wasBackslash = false, wasU = false;
     for (const c of input.substring(1, input.length - 1)) {
         ++pos;
+
+        if (wasU) {
+            uBuffer.push(c);
+
+            if (uBuffer.length >= 4) {
+                chars.push(String.fromCharCode(+`0x${uBuffer.join('')}`));
+                uBuffer = [];
+                wasU = false;
+            }
+
+            continue;
+        }
 
         if (wasBackslash) {
             switch (c) {
@@ -24,15 +37,33 @@ export const parseStringValue = (input: string, position: Position): string => {
                     chars.push('"');
                     break;
 
+                case 'r':
+                    chars.push('\r');
+                    break;
+
                 case 'n':
                     chars.push('\n');
+                    break;
+
+                case 't':
+                    chars.push('\t');
+                    break;
+
+                case 'f':
+                    chars.push('\f');
+                    break;
+
+                case 'v':
+                    chars.push('\v');
+                    break;
+
+                case 'u':
+                    wasU = true;
                     break;
 
                 case '\\':
                     chars.push('\\');
                     break;
-
-                    // TODO more control sequences
 
                 default:
                     const errorPosition: PositionRange = {
@@ -42,6 +73,10 @@ export const parseStringValue = (input: string, position: Position): string => {
                         length: 1,
                     };
 
+                    console.error(parseError(
+                        errorPosition,
+                        `undefined control sequence "\\${c}"`,
+                    ));
                     throw parseError(
                         errorPosition,
                         `undefined control sequence "\\${c}"`,
@@ -58,6 +93,18 @@ export const parseStringValue = (input: string, position: Position): string => {
         }
 
         chars.push(c);
+    }
+
+    if (wasBackslash || wasU) {
+        const errorPosition: PositionRange = {
+            row: position.row,
+            column: position.column + pos,
+            fromStart: position.fromStart + pos,
+            length: 1,
+        };
+
+        console.error(parseError(errorPosition, `unexpected closing quote ${input}`));
+        throw parseError(errorPosition, 'unexpected closing quote');
     }
 
     return chars.join('');
