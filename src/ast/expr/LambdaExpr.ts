@@ -1,8 +1,8 @@
-import { parseSpaces } from '../../utils/parseSpaces';
-import { parseName } from '../../utils/parseName';
-import { Position } from '../../utils/Position';
+import { Position, PositionRange, positionTo } from '../../utils/Position';
 import { BaseExpr, Expr, ExprType, parseExpr } from './Expr';
+import { parseSpaces } from '../../utils/parseSpaces';
 import { parseString } from '../../utils/parseString';
+import { parseName } from '../../utils/parseName';
 
 
 export interface LambdaExpr<Meta> extends BaseExpr<ExprType.LAMBDA, Meta> {
@@ -11,7 +11,7 @@ export interface LambdaExpr<Meta> extends BaseExpr<ExprType.LAMBDA, Meta> {
     readonly body: Expr<Meta>;
 }
 
-export const parseLambdaExpr = (input: string, position: Position): [LambdaExpr<Position>, [string, Position]] => {
+export const parseLambdaExpr = (input: string, position: Position): [LambdaExpr<PositionRange>, [string, Position]] => {
     const [afterSpaces, resultPosition] = parseSpaces(input, position);
 
     const [afterBackslash, afterBackslashPosition] = parseString('\\', afterSpaces, resultPosition);
@@ -26,5 +26,5 @@ export const parseLambdaExpr = (input: string, position: Position): [LambdaExpr<
 
     const [body, rest] = parseExpr(afterArrow, afterArrowPosition);
 
-    return [{ type: ExprType.LAMBDA, parameter, body, meta: resultPosition }, rest];
+    return [{ type: ExprType.LAMBDA, parameter, body, meta: positionTo(resultPosition, rest[1]) }, rest];
 };

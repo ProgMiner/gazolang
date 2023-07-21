@@ -1,7 +1,7 @@
-import { parseName } from '../../utils/parseName';
-import { Position } from '../../utils/Position';
-import { BaseExpr, ExprType } from './Expr';
+import { Position, PositionRange, positionTo } from '../../utils/Position';
 import { parseSpaces } from '../../utils/parseSpaces';
+import { parseName } from '../../utils/parseName';
+import { BaseExpr, ExprType } from './Expr';
 
 
 export interface NameExpr<Meta> extends BaseExpr<ExprType.NAME, Meta> {
@@ -9,9 +9,9 @@ export interface NameExpr<Meta> extends BaseExpr<ExprType.NAME, Meta> {
     readonly name: string;
 }
 
-export const parseNameExpr = (input: string, position: Position): [NameExpr<Position>, [string, Position]] => {
+export const parseNameExpr = (input: string, position: Position): [NameExpr<PositionRange>, [string, Position]] => {
     const [afterSpaces, resultPosition] = parseSpaces(input, position);
     const [name, rest] = parseName(afterSpaces, resultPosition);
 
-    return [{ type: ExprType.NAME, name, meta: resultPosition }, rest];
+    return [{ type: ExprType.NAME, name, meta: positionTo(resultPosition, rest[1]) }, rest];
 };

@@ -1,7 +1,7 @@
-import { emptyPosition, Position } from './utils/Position';
-import { parseProgram } from './ast/Program';
-import { evalError, parseError } from './utils/errors';
+import { emptyPosition, isPositionRange, Position } from './utils/Position';
+import { parseError, PositionedError } from './utils/errors';
 import { evaluate, EvaluationContext } from './evaluate';
+import { parseProgram } from './ast/Program';
 
 
 const evaluationContext: EvaluationContext<Position> = {
@@ -9,6 +9,7 @@ const evaluationContext: EvaluationContext<Position> = {
         show: (value: unknown) => `${value}`,
         alert,
         prompt,
+        confirm,
         'true': true,
         'false': false,
         'if': (c: unknown, t: unknown, f: unknown) => {
@@ -64,6 +65,22 @@ const evaluationContext: EvaluationContext<Position> = {
 
             return a % b;
         },
+        asList: (value: unknown) => {
+            if (typeof value !== 'string' && !Array.isArray(value)) {
+                throw new Error('argument of asList must be string or list');
+            }
+
+            let result: (s: (a: unknown) => (acc: unknown) => unknown) => (z: unknown) => unknown =
+                _ => z => () => z;
+
+            for (let i = value.length - 1; i >= 0; --i) {
+                const partialResult = result;
+
+                result = s => z => () => s(value[i])(partialResult(s)(z));
+            }
+
+            return result;
+        },
     },
     names: {},
 };
@@ -75,6 +92,12 @@ const boot = () => {
     if (!(codeTextarea instanceof HTMLTextAreaElement) || !(runButton instanceof HTMLButtonElement)) {
         throw Error('HTML elements not found');
     }
+
+    codeTextarea.value = localStorage.getItem("code") ?? "";
+
+    codeTextarea.onkeyup = () => {
+        localStorage.setItem("code", codeTextarea.value);
+    };
 
     runButton.onclick = () => {
         try {
@@ -89,6 +112,17 @@ const boot = () => {
         } catch (e) {
             if (e instanceof Error) {
                 alert(e.message);
+            }
+
+            if (e instanceof PositionedError) {
+                codeTextarea.focus({ preventScroll: true });
+                codeTextarea.selectionStart = e.position.fromStart;
+
+                if (isPositionRange(e.position)) {
+                    codeTextarea.selectionEnd = e.position.fromStart + e.position.length;
+                } else {
+                    codeTextarea.selectionEnd = e.position.fromStart;
+                }
             }
 
             console.error(e);

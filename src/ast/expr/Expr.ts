@@ -1,11 +1,11 @@
 import { ApplicationExpr, parseApplicationExpr } from './ApplicationExpr';
+import { Position, PositionRange } from '../../utils/Position';
 import { LambdaExpr, parseLambdaExpr } from './LambdaExpr';
 import { parseStringExpr, StringExpr } from './StringExpr';
-import { NameExpr, parseNameExpr } from './NameExpr';
-import { parseSpaces } from '../../utils/parseSpaces';
-import { Position } from '../../utils/Position';
-import { AstNode } from '../AstNode';
 import { parseString } from '../../utils/parseString';
+import { parseSpaces } from '../../utils/parseSpaces';
+import { NameExpr, parseNameExpr } from './NameExpr';
+import { AstNode } from '../AstNode';
 
 
 export enum ExprType {
@@ -28,7 +28,7 @@ export type Expr<Meta>
     | LambdaExpr<Meta>
     ;
 
-const parseParens = (input: string, position: Position): [Expr<Position>, [string, Position]] => {
+const parseParens = (input: string, position: Position): [Expr<PositionRange>, [string, Position]] => {
     const [afterSpaces, resultPosition] = parseSpaces(input, position);
 
     const afterOpen = parseString('(', afterSpaces, resultPosition);
@@ -42,7 +42,7 @@ const parseParens = (input: string, position: Position): [Expr<Position>, [strin
     return [expr, rest];
 };
 
-export const parseSimpleExpr = (input: string, position: Position): [Expr<Position>, [string, Position]] => {
+export const parseSimpleExpr = (input: string, position: Position): [Expr<PositionRange>, [string, Position]] => {
     try {
         return parseParens(input, position);
     } catch (e) {
@@ -58,7 +58,7 @@ export const parseSimpleExpr = (input: string, position: Position): [Expr<Positi
     }
 };
 
-export const parseExpr = (input: string, position: Position): [Expr<Position>, [string, Position]] => {
+export const parseExpr = (input: string, position: Position): [Expr<PositionRange>, [string, Position]] => {
     try {
         return parseApplicationExpr(input, position);
     } catch (e) {

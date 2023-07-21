@@ -1,8 +1,8 @@
+import { Position, PositionRange, positionTo } from '../../utils/Position';
 import { parseSpaces } from '../../utils/parseSpaces';
-import { Position } from '../../utils/Position';
+import { parseRegex } from '../../utils/parseRegex';
 import { parseError } from '../../utils/errors';
 import { BaseExpr, ExprType } from './Expr';
-import { parseRegex } from '../../utils/parseRegex';
 
 
 export interface StringExpr<Meta> extends BaseExpr<ExprType.STRING, Meta> {
@@ -35,8 +35,15 @@ export const parseStringValue = (input: string, position: Position): string => {
                     // TODO more control sequences
 
                 default:
+                    const errorPosition: PositionRange = {
+                        row: position.row,
+                        column: position.column + pos,
+                        fromStart: position.fromStart + pos,
+                        length: 1,
+                    };
+
                     throw parseError(
-                        { row: position.row, column: position.column + pos },
+                        errorPosition,
                         `undefined control sequence "\\${c}"`,
                     );
             }
@@ -56,11 +63,11 @@ export const parseStringValue = (input: string, position: Position): string => {
     return chars.join('');
 }
 
-export const parseStringExpr = (input: string, position: Position): [StringExpr<Position>, [string, Position]] => {
+export const parseStringExpr = (input: string, position: Position): [StringExpr<PositionRange>, [string, Position]] => {
     const [afterSpaces, resultPosition] = parseSpaces(input, position);
 
     const [literal, rest] = parseRegex(/^"(?:\\.|[^"])*"/, afterSpaces, resultPosition);
 
     const value = parseStringValue(literal, resultPosition);
-    return [{ type: ExprType.STRING, value, meta: resultPosition }, rest];
+    return [{ type: ExprType.STRING, value, meta: positionTo(resultPosition, rest[1]) }, rest];
 };
