@@ -2,7 +2,7 @@ import { Position, sumPositions, textToPosition } from './Position';
 
 
 export const parseSpaces = (input: string, position: Position): [string, Position] => {
-    const match = input.match(/^(?:\s|--.*\n)*/);
+    const match = input.match(/^(?:\s|--.*(?:\n|$))*/);
 
     if (match === null) {
         return [input, position];
