@@ -1,7 +1,7 @@
+import { evalError, evalExprError } from './utils/errors';
+import { Expr, ExprType } from './ast/expr/Expr';
 import { Position } from './utils/Position';
 import { Program } from './ast/Program';
-import { Expr, ExprType } from './ast/expr/Expr';
-import { evalError } from './utils/errors';
 
 
 export interface EvaluationContext<Meta> {
@@ -11,6 +11,8 @@ export interface EvaluationContext<Meta> {
 
     readonly previous?: EvaluationContext<Meta>;
 }
+
+const callStack: Expr<Position>[] = [];
 
 export const expandContext = <Meta>(
     context: EvaluationContext<Meta>,
@@ -38,7 +40,7 @@ export const lookupContext = <Meta>(
         return lookupContext(context.previous, name, position);
     }
 
-    throw evalError(position, `name "${name}" isn't present in context`);
+    throw evalExprError(position, callStack, `name "${name}" isn't present in context`);
 };
 
 export const evaluate = (context: EvaluationContext<Position>, program: Program<Position>): unknown => {
@@ -56,27 +58,45 @@ export const evaluate = (context: EvaluationContext<Position>, program: Program<
 };
 
 export const evaluateExpr = (context: EvaluationContext<Position>, expr: Expr<Position>): unknown => {
+    callStack.push(expr);
+
+    let result: unknown;
     switch (expr.type) {
         case ExprType.STRING:
-            return expr.value;
+            result = expr.value;
+            break;
 
         case ExprType.NAME:
-            return lookupContext(context, expr.name, expr.meta);
+            result = lookupContext(context, expr.name, expr.meta);
+            break;
 
         case ExprType.APPLICATION:
             const func = evaluateExpr(context, expr.function);
             const argument = evaluateExpr(context, expr.argument);
 
             if (typeof func !== 'function') {
-                throw evalError(expr.meta, 'cannot apply value to non-function type');
+                throw evalExprError(expr.meta, callStack, 'cannot apply value to non-function type');
             }
 
-            return func(argument);
+            result = func(argument);
+            break;
 
         case ExprType.LAMBDA:
-            return (parameter: unknown) => evaluateExpr(
-                expandContext(context, { [expr.parameter]: parameter }),
-                expr.body,
-            );
+            result = (argument: unknown) => {
+                callStack.push(expr);
+
+                const result = evaluateExpr(
+                    expandContext(context, { [expr.parameter]: argument }),
+                    expr.body,
+                );
+
+                callStack.pop();
+                return result;
+            };
+
+            break;
     }
+
+    callStack.pop();
+    return result;
 };

@@ -47,9 +47,10 @@ quoteString := . (Cons "\"") (foldr' (\c -> \acc ->
     Cons c acc)))) (asList "\""));
 
 -- data Maybe a = Just a | Nothing
-Just := const;
-Nothing := id;
-maybe := \x -> \y -> x y;
+-- !!! lazy default value evaluation !!!
+Just := \x -> \j -> \_ -> j x;
+Nothing := \_ -> \n -> n unit;
+maybe := \j -> \n -> \x -> x j n;
 
 -- data Either a b = Left a | Right b
 Left := \x -> \l -> \_ -> l x;
@@ -59,6 +60,7 @@ either := \l -> \r -> \x -> x l r;
 either'mapLeft := \f -> \e -> e (\x -> Left (f x)) Right;
 either'mapRight := \f -> \e -> e Left (\x -> Right (f x));
 either'bind := \e -> e Left;
+either'bind' := \ea -> \eb -> either'bind ea (const eb);
 
 -- Shows
 
@@ -81,6 +83,7 @@ list'shows := \x'shows -> \xs -> lazyIf (null xs)
             (\_ -> . (. (str'shows "[") (x'shows x)) (. (foldr' (\v -> \acc -> . (. (str'shows ", ") (x'shows v)) acc) id xs') (str'shows "]"))))));
 
 string'shows := ++;
+
 
 -- Parser combinators
 
@@ -305,6 +308,7 @@ parseApplicationExpr := parser'bind'
     parser'getPosition (\pos' -> parser'pure
     (do (position'to pos pos') (\pos -> foldl' (\f -> \a -> ApplicationExpr f a pos) function args)))))));
 
+-- TODO braces
 parseSimpleExpr := parser'alt parseStringExpr (parser'alt parseLambdaExpr parseNameExpr);
 parseExpr := parser'alt parseApplicationExpr parseSimpleExpr;
 
@@ -332,8 +336,109 @@ parse := \code -> parser'eval
     (asList code);
 
 
+-- Compilator
+
 compile := \target -> \_ -> Left (PositionedError "not implemented" position'start);
-interpret := \_ -> Left (PositionedError "not implemented" position'start);
+
+
+-- Interpreter
+
+-- type State a b = a -> Pair a b
+State := id;
+
+state'get := \a -> Pair a a;
+state'update := \f -> \a -> Pair (f a) unit;
+state'set := . state'update const;
+
+state'map := \f -> \sa -> \x -> pair'mapSnd f (sa x);
+state'pure := \a -> \x -> Pair x a;
+state'ap := \sf -> \sa -> \x -> sf x (\x' -> \f -> pair'mapSnd f (sa x'));
+state'bind := \sa -> \k -> \x -> sa x (\x' -> \a -> k a x');
+state'bind' := \sa -> \sb -> state'bind sa (const sb);
+state'mapM := \f -> \xs -> lazyIf (null xs)
+                                  (\_ -> state'pure Nil)
+                                  (\_ -> state'bind (f (head xs)) (\x' -> state'map (Cons x') (state'mapM f (tail xs))));
+state'mapM_ := \f -> \xs -> state'map (const unit) (state'mapM f xs);
+
+state'run := \s -> \x -> s x;
+state'exec := \s -> \x -> fst (state'run s x);
+state'eval := \s -> \x -> snd (state'run s x);
+
+
+-- type EvaluationContext = string -> State EvaluationContext (Maybe ?)
+EvaluationContext := id;
+
+-- evaluationContext'put :: string -> ? -> EvaluationContext -> EvaluationContext
+evaluationContext'put := \name -> \value -> \ctx -> EvaluationContext (\name' ->
+    lazyIf (== name name')
+           (\_ -> state'pure (Just value))
+           (\_ -> ctx name'));
+
+-- emptyContext :: EvaluationContext
+emptyContext := EvaluationContext (\_ -> state'pure Nothing);
+
+-- rootContext :: (string -> Maybe ?) -> EvaluationContext
+rootContext := \names -> EvaluationContext (. state'pure names);
+
+-- stateContext :: EvaluationContext
+stateContext := EvaluationContext (\name -> state'bind state'get (\ctx -> ctx name));
+
+-- type EvaluationState a = State EvaluationContext (Either PositionedError a)
+EvaluationState := id;
+
+evaluationState'map := \f -> state'map (either'mapRight f);
+evaluationState'pure := \x -> state'pure (Right x);
+evaluationState'ap := \esf -> \esa -> state'bind esf (\ef -> state'map (\ea -> either'bind ef (\f -> either'mapRight f ea)) esa);
+evaluationState'bind := \esa -> \k -> state'bind esa (\ea -> ea (\err -> state'pure (Left err)) k);
+evaluationState'bind' := \esa -> \esb -> evaluationState'bind esa (const esb);
+evaluationState'mapM := \f -> \xs -> lazyIf (null xs)
+                                            (\_ -> evaluationState'pure Nil)
+                                            (\_ -> evaluationState'bind (f (head xs)) (\x' ->
+                                                evaluationState'map (Cons x') (evaluationState'mapM f (tail xs))));
+evaluationState'mapM_ := \f -> \xs -> evaluationState'map (const unit) (evaluationState'mapM f xs);
+
+-- evaluationState'put :: string -> ? -> EvaluationState Unit
+evaluationState'put := \name -> \value -> state'map (const (Right unit)) (state'update (evaluationContext'put name value));
+
+-- lookupContext :: string -> Position -> EvaluationContext -> EvaluationState ?
+lookupContext := \name -> \pos -> \ctx -> state'map (\value ->
+    maybe (\v -> Right v)
+          (\_ -> Left (PositionedError (join "" (asArray (Cons "name \"" (Cons name (Cons "\" isn't present in context" Nil))))) pos))
+          value) (ctx name);
+
+-- buildContext :: List Definition -> EvaluationState Unit
+buildContext := evaluationState'mapM_ (\def -> def (\name -> \value -> \pos -> evaluationState'bind
+    (evaluateExpr stateContext value) (\value' -> do
+    (join "" (asArray name)) (\name' -> state'bind
+    state'get (\ctx -> state'bind
+    (ctx name') (\oldValue ->
+    oldValue (\_ -> state'pure (Left (PositionedError "duplicated names are not supported" (positionRange'position pos))))
+             (\_ -> evaluationState'put name' value')))))));
+
+-- evaluateExpr :: EvaluationContext -> Expr -> EvaluationState ?
+evaluateExpr := \ctx -> \expr -> expr
+    (\name -> \pos -> lookupContext (join "" (asArray name)) (positionRange'position pos) ctx)
+    (\value -> \pos -> evaluationState'pure (join "" (asArray value)))
+    (\parameter -> \body -> \pos -> evaluationState'pure (do (join "" (asArray parameter)) (\parameter' ->
+        \a -> evaluateExpr (evaluationContext'put parameter' a ctx) body)))
+    (\function -> \argument -> \pos -> evaluationState'bind
+        (evaluateExpr ctx function) (\f -> evaluationState'bind
+        (evaluateExpr ctx argument) (\a ->
+        f a)))
+    ;
+
+-- TODO
+internalNamesContext :=
+    evaluationContext'put "g" (\x -> evaluationState'pure x) (
+    evaluationContext'put "y" "lol" (
+    emptyContext));
+
+-- interpret'state :: Program -> EvaluationState ?
+interpret'state := \ast -> ast (\names -> \expr ->
+    evaluationState'bind' (buildContext names) (evaluateExpr stateContext expr));
+
+-- interpret :: Program -> Either PositionedError ?
+interpret := \ast -> state'eval (interpret'state ast) internalNamesContext;
 
 
 main' := \_ -> either'bind

@@ -133,14 +133,47 @@ const evaluationContext: EvaluationContext<Position> = {
 };
 
 const boot = () => {
+    const codeLinesDiv = document.getElementById('code_lines');
     const codeTextarea = document.getElementById('code');
     const runButton = document.getElementById('run');
 
-    if (!(codeTextarea instanceof HTMLTextAreaElement) || !(runButton instanceof HTMLButtonElement)) {
+    if (!(codeLinesDiv instanceof HTMLDivElement)
+        || !(codeTextarea instanceof HTMLTextAreaElement)
+        || !(runButton instanceof HTMLButtonElement)) {
         throw Error('HTML elements not found');
     }
 
     codeTextarea.value = localStorage.getItem("code") ?? "";
+
+    const updateCodeLinesBounds = () => {
+        const bodyBounds = document.body.getBoundingClientRect();
+        const bounds = codeTextarea.getBoundingClientRect();
+
+        codeLinesDiv.style.right = `${bodyBounds.width - (bounds.x + bounds.width)}px`;
+        codeLinesDiv.style.top = `${bounds.y}px`;
+        codeLinesDiv.style.bottom = `${bounds.y + bounds.height}px`;
+        codeLinesDiv.style.height = `${bounds.height}px`;
+    };
+
+    updateCodeLinesBounds();
+    document.body.onresize = updateCodeLinesBounds;
+
+    codeTextarea.onscroll = () => {
+        codeLinesDiv.scrollTop = codeTextarea.scrollTop;
+    };
+
+    const updateCodeLinesText = () => {
+        const { row } = textToPosition(codeTextarea.value);
+
+        let lines = '';
+        for (let i = 0; i < row * 10; ++i) {
+            lines += `-- ${i}\n`;
+        }
+
+        codeLinesDiv.innerText = lines;
+    };
+
+    updateCodeLinesText();
 
     codeTextarea.onkeydown = (event) => {
         if (event.key === 'Tab') {
