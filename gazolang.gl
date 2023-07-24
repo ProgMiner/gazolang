@@ -438,11 +438,45 @@ evaluateExpr := \ctx -> \expr -> expr
         f a)))
     ;
 
--- TODO
-internalNamesContext :=
-    evaluationContext'put "g" (\x -> evaluationState'pure x) (
-    evaluationContext'put "y" "lol" (
-    emptyContext));
+-- following checked in Haskell:
+internalNamesContext'1ar := . evaluationState'pure;
+internalNamesContext'2ar := . internalNamesContext'1ar (. internalNamesContext'1ar);
+internalNamesContext'3ar := . (internalNamesContext'1ar internalNamesContext'2ar);
+
+internalNamesContext := evaluationContext'put
+
+-- pure values
+    "true"      true (evaluationContext'put
+    "false"     false (evaluationContext'put
+    "undefined" undefined (evaluationContext'put
+
+-- 1-arity functions
+    "show"      (internalNamesContext'1ar show) (evaluationContext'put
+    "alert"     (internalNamesContext'1ar alert) (evaluationContext'put
+    "prompt"    (internalNamesContext'1ar prompt) (evaluationContext'put
+    "confirm"   (internalNamesContext'1ar confirm) (evaluationContext'put
+    "toString"  (internalNamesContext'1ar toString) (evaluationContext'put
+    "parseNumber" (internalNamesContext'1ar parseNumber) (evaluationContext'put
+    "asList"    (internalNamesContext'1ar asList) (evaluationContext'put
+    "asArray"   (internalNamesContext'1ar asArray) (evaluationContext'put
+    "chr"       (internalNamesContext'1ar chr) (evaluationContext'put
+
+-- 2-arity functions
+    "join"      (internalNamesContext'2ar join) (evaluationContext'put
+    "+"         (internalNamesContext'2ar +) (evaluationContext'put
+    "-"         (internalNamesContext'2ar -) (evaluationContext'put
+    "*"         (internalNamesContext'2ar *) (evaluationContext'put
+    "/"         (internalNamesContext'2ar /) (evaluationContext'put
+    "%"         (internalNamesContext'2ar %) (evaluationContext'put
+    "=="        (internalNamesContext'2ar ==) (evaluationContext'put
+    "!="        (internalNamesContext'2ar !=) (evaluationContext'put
+    "<"         (internalNamesContext'2ar <) (evaluationContext'put
+    "<="        (internalNamesContext'2ar <=) (evaluationContext'put
+    ">"         (internalNamesContext'2ar >) (evaluationContext'put
+    ">="        (internalNamesContext'2ar >=) (evaluationContext'put
+
+-- 3-arity functions
+    "if"        (internalNamesContext'3ar if) emptyContext))))))))))))))))))))))));
 
 -- interpret'state :: Program -> EvaluationState ?
 interpret'state := \ast -> ast (\names -> \expr ->
@@ -458,11 +492,14 @@ main' := \_ -> either'bind
     do (confirm "Compile?") (\needCompile ->
     lazyIf needCompile
            (\_ -> compile (prompt "Compile to?") ast)
-           (\_ -> interpret ast))));
+           (\_ -> either'bind (interpret ast) (\result ->
+                  lazyIf (!= undefined result)
+                         (\_ -> Right (alert result))
+                         (\_ -> Right undefined))))));
 
 main := \_ -> main' unit
     (\err -> alert (show' (positionedError'shows err)))
-    (\result -> alert result);
+    (\_ -> undefined);
 
 
 -- show' (parserResult'shows expr'shows (parser'run parseNameExpr (asList "     \n \n -- kek lol \n \t xsdsf'23fs_sdf;     -- test comment  \n   kek")))
