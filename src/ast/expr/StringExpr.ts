@@ -73,10 +73,6 @@ export const parseStringValue = (input: string, position: Position): string => {
                         length: 1,
                     };
 
-                    console.error(parseError(
-                        errorPosition,
-                        `undefined control sequence "\\${c}"`,
-                    ));
                     throw parseError(
                         errorPosition,
                         `undefined control sequence "\\${c}"`,

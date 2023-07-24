@@ -91,8 +91,43 @@ const evaluationContext: EvaluationContext<Position> = {
             return result;
         },
         join: (sep: string) => (arr: unknown[]) => arr.join(sep),
+        chr: (x: unknown) => {
+            if (typeof x !== 'number') {
+                throw new Error('argument of chr must be a number');
+            }
+
+            return String.fromCharCode(x);
+        },
         '==': (a: unknown) => (b: unknown) => a === b,
         '!=': (a: unknown) => (b: unknown) => a !== b,
+        '<': (a: unknown) => (b: unknown) => {
+            if (typeof a !== 'number' || typeof b !== 'number') {
+                throw new Error('argument of < must be a number');
+            }
+
+            return a < b;
+        },
+        '<=': (a: unknown) => (b: unknown) => {
+            if (typeof a !== 'number' || typeof b !== 'number') {
+                throw new Error('argument of <= must be a number');
+            }
+
+            return a <= b;
+        },
+        '>': (a: unknown) => (b: unknown) => {
+            if (typeof a !== 'number' || typeof b !== 'number') {
+                throw new Error('argument of > must be a number');
+            }
+
+            return a > b;
+        },
+        '>=': (a: unknown) => (b: unknown) => {
+            if (typeof a !== 'number' || typeof b !== 'number') {
+                throw new Error('argument of >= must be a number');
+            }
+
+            return a >= b;
+        },
     },
     names: {},
 };
@@ -205,7 +240,13 @@ const boot = () => {
         lastCursorPosition = codeTextarea.selectionStart;
     };
 
-    runButton.onclick = () => {
+    runButton.onclick = async () => {
+        runButton.disabled = true;
+        runButton.innerText = 'Парсинг...';
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const parsingStartTime = performance.now();
+
         try {
             const [program, [rest, restPosition]] = parseProgram(codeTextarea.value, emptyPosition());
 
@@ -214,7 +255,15 @@ const boot = () => {
                 throw parseError(restPosition);
             }
 
+            console.log(`Parsing took ${performance.now() - parsingStartTime}`);
+
+            runButton.innerText = 'Выполнение...';
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const evalStartTime = performance.now();
             const result = evaluate(evaluationContext, program);
+
+            console.log(`Evaluation took ${performance.now() - evalStartTime}`);
 
             if (result !== undefined) {
                 alert(result);
@@ -237,6 +286,9 @@ const boot = () => {
 
             console.error(e);
         }
+
+        runButton.innerText = 'Запуск';
+        runButton.disabled = false;
     };
 };
 
