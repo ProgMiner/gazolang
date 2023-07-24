@@ -244,7 +244,7 @@ const boot = () => {
         runButton.disabled = true;
         runButton.innerText = 'Парсинг...';
 
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise(resolve => setTimeout(resolve, 1));
         const parsingStartTime = performance.now();
 
         try {
@@ -258,7 +258,7 @@ const boot = () => {
             console.log(`Parsing took ${performance.now() - parsingStartTime}`);
 
             runButton.innerText = 'Выполнение...';
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise(resolve => setTimeout(resolve, 1));
 
             const evalStartTime = performance.now();
             const result = evaluate(evaluationContext, program);

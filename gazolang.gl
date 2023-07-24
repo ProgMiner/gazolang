@@ -1,0 +1,361 @@
+
+unit := "unit";
+0 := parseNumber "0";
+1 := parseNumber "1";
+4 := parseNumber "4";
+
+! := \a -> if a false true;
+|| := \a -> \b -> if a true b;
+&& := \a -> \b -> if a b false;
+
+do := \x -> \f -> f x;
+lazyIf := \c -> \t -> \f -> if c t f unit;
+
+-- base combinators
+id := \x -> x;
+const := \x -> \_ -> x;
+const' := \_ -> id;
+. := \f -> \g -> \x -> f (g x);
+flip := \f -> \a -> \b -> f b a;
+
+-- data Pair a b = Pair a b
+Pair := \l -> \r -> \f -> f l r;
+fst := \p -> p const;
+snd := \p -> p const';
+
+pair'mapFst := \f -> \p -> p (\l -> \r -> Pair (f l) r);
+pair'mapSnd := \f -> \p -> p (\l -> \r -> Pair l (f r));
+
+-- data List a = Nil | Cons a (List a)
+-- type String = List string
+Nil := \_ -> \z -> \_ -> z;
+Cons := \x -> \xs -> \s -> \z -> \_ -> s x (xs s z);
+foldr := \f -> \ini -> \xs -> xs f ini unit;
+foldr' := \f -> \ini -> \xs -> xs (\v -> \acc -> f v (acc unit)) ini unit;
+foldl' := \f -> \ini -> \xs -> xs (\v -> \next -> \acc -> next unit (f acc v)) (\acc -> acc) unit ini;
+
+null := foldr (\_ -> \_ -> false) true;
+head := foldr (\v -> \_ -> v) undefined;
+tail := \xs -> snd (foldr (\v -> \acc -> do (fst (acc unit)) (\xs' -> Pair (Cons v xs') xs')) (Pair Nil undefined) xs);
+
+++ := flip (foldr' Cons);
+
+quoteString := . (Cons "\"") (foldr' (\c -> \acc ->
+    lazyIf (== c "\\") (\_ -> Cons "\\" (Cons "\\" acc)) (\_ ->
+    lazyIf (== c "\"") (\_ -> Cons "\\" (Cons "\"" acc)) (\_ ->
+    lazyIf (== c "\n") (\_ -> Cons "\\" (Cons "n" acc)) (\_ ->
+    Cons c acc)))) (asList "\""));
+
+-- data Maybe a = Just a | Nothing
+Just := const;
+Nothing := id;
+maybe := \x -> \y -> x y;
+
+-- data Either a b = Left a | Right b
+Left := \x -> \l -> \_ -> l x;
+Right := \x -> \_ -> \r -> r x;
+either := \l -> \r -> \x -> x l r;
+
+either'mapLeft := \f -> \e -> e (\x -> Left (f x)) Right;
+either'mapRight := \f -> \e -> e Left (\x -> Right (f x));
+either'bind := \e -> e Left;
+
+-- Shows
+
+show := \f -> f Nil;
+show' := . (. (join "") asArray) show;
+
+str'shows := . ++ asList;
+num'shows := . str'shows toString;
+
+pair'shows := \ls -> \rs -> \p -> p (\l -> \r -> . (. (. (str'shows "(") (ls l)) (. (str'shows ", ") (rs r))) (str'shows ")"));
+
+either'shows := \ls -> \rs -> \e -> e (\l -> . (str'shows "Left ") (ls l)) (\r -> . (str'shows "Right ") (rs r));
+
+list'shows := \x'shows -> \xs -> lazyIf (null xs)
+    (\_ -> str'shows "[]")
+    (\_ -> do (tail xs)
+        (\xs' -> do (head xs)
+        (\x -> lazyIf (null xs')
+            (\_ -> . (str'shows "[") (. (x'shows x) (str'shows "]")))
+            (\_ -> . (. (str'shows "[") (x'shows x)) (. (foldr' (\v -> \acc -> . (. (str'shows ", ") (x'shows v)) acc) id xs') (str'shows "]"))))));
+
+string'shows := ++;
+
+-- Parser combinators
+
+-- data Position = Position { row :: number, column :: number, fromStart :: number }
+Position := \row -> \column -> \fromStart -> \f -> f row column fromStart;
+position'row := \p -> p (\row -> \_ -> \_ -> row);
+position'column := \p -> p (\_ -> \column -> \_ -> column);
+position'fromStart := \p -> p (\_ -> \_ -> \fromStart -> fromStart);
+
+position'start := Position 0 0 0;
+position'inc := \c -> if (== c "\n")
+                         (\p -> p (\row -> \column -> \fromStart -> Position (+ row 1) 0 (+ fromStart 1)))
+                         (\p -> p (\row -> \column -> \fromStart -> Position row (+ column 1) (+ fromStart 1)));
+
+position'shows := \p -> p (\row -> \column -> \_ -> . (num'shows row) (. (str'shows ":") (num'shows column)));
+
+-- data PositionRange = PositionRange { position :: Position, length :: number }
+PositionRange := Pair;
+positionRange'position := fst;
+positionRange'length := snd;
+
+positionRange'shows := \pr -> pr (\p -> \l -> . (position'shows p) (. (str'shows " + ") (num'shows l)));
+
+-- position'to :: Position -> Position -> PositionRange
+position'to := \a -> \b -> PositionRange a (- (position'fromStart b) (position'fromStart a));
+
+-- data PositionedError = PositionedError { message :: string, position :: Position }
+PositionedError := Pair;
+positionedError'message := fst;
+positionedError'position := snd;
+
+positionedError'shows := \pe -> pe (\m -> \p -> . (str'shows m) (. (str'shows " on ") (position'shows p)));
+
+-- type ParserContext = Pair String Position
+-- type ParserResult a = Either PositionedError (Pair ParserContext a)
+-- type Parser a = ParserContext -> ParserResult a
+Parser := id;
+parserContext'input := fst;
+parserContext'position := snd;
+
+-- parser'run :: Parser a -> String -> Either PositionedError (Pair ParserContext a)
+parser'run := \p -> \input -> p (Pair input position'start);
+
+parser'exec := \p -> \input -> either'mapRight fst (parser'run p input);
+parser'eval := \p -> \input -> either'mapRight snd (parser'run p input);
+
+parser'error := \err -> \ctx -> Left (PositionedError err (snd ctx));
+
+parserContext'shows := pair'shows (. string'shows quoteString) position'shows;
+parserResult'shows := \a'shows -> either'shows positionedError'shows (pair'shows parserContext'shows a'shows);
+
+parser'map := \f -> . (either'mapRight (pair'mapSnd f));
+parser'pure := \x -> \ctx -> Right (Pair ctx x);
+parser'ap := \pf -> \px -> \ctx -> either'bind (pf ctx) (\p -> p (\ctx' -> \f -> either'mapRight f (px ctx')));
+parser'bind := \px -> \k -> \ctx -> either'bind (px ctx) (\p -> p (\ctx' -> \x -> k x ctx'));
+parser'bind' := \px -> \py -> parser'bind px (const py);
+parser'empty := parser'error "no way";
+parser'alt := \a -> \b -> \ctx -> a ctx (\_ -> b ctx) Right;
+parser'many := \pa -> parser'alt (parser'bind pa (\a -> parser'map (Cons a) (parser'many pa))) (parser'pure Nil);
+parser'some := \pa -> parser'bind pa (\a -> parser'map (Cons a) (parser'many pa));
+parser'replicate := \num -> \pa -> lazyIf (> num 0)
+                                          (\_ -> parser'bind pa (\a -> parser'map (Cons a) (parser'replicate (- num 1) pa)))
+                                          (\_ -> parser'pure Nil);
+
+-- parser'getPosition :: Parser Position
+parser'getPosition := \ctx -> Right (Pair ctx (parserContext'position ctx));
+
+-- parseIf :: (string -> boolean) -> Parser string
+parseIf := \pred -> \ctx -> ctx (\input -> \pos -> lazyIf (null input)
+                                                          (\_ -> Left (PositionedError "unexpected EOF" pos))
+                                                          (\_ -> lazyIf (pred (head input))
+                                                                        (\_ -> Right (Pair (Pair (tail input) (position'inc (head input) pos)) (head input)))
+                                                                        (\_ -> Left (PositionedError "unexpected character" pos))));
+
+-- parseChar :: string -> Parser Unit
+parseChar := \c -> parser'map (const unit) (parseIf (== c));
+
+-- parseString :: String -> Parser Unit
+parseString := foldr' (. parser'bind' parseChar) (parser'pure unit);
+
+-- parseStr :: string -> Parser Unit
+parseStr := . parseString asList;
+
+-- parseAny :: Parser string
+parseAny := parseIf (const true);
+
+-- parseEOF :: Parser Unit
+parseEOF := \ctx -> ctx (\input -> \pos -> lazyIf (null input)
+                                                  (\_ -> Right (Pair (Pair Nil pos) unit))
+                                                  (\_ -> Left (PositionedError "unexpected trailing characters" pos)));
+
+
+-- Gazolang parser
+
+-- data Expr
+--     = NameExpr String PositionRange
+--     | StringExpr String PositionRange
+--     | LambdaExpr String Expr PositionRange
+--     | ApplicationExpr Expr Expr PositionRange
+
+NameExpr := \name -> \pos -> \fName -> \fString -> \fLambda -> \fApplication -> fName name pos;
+StringExpr := \value -> \pos -> \fName -> \fString -> \fLambda -> \fApplication -> fString value pos;
+LambdaExpr := \parameter -> \body -> \pos -> \fName -> \fString -> \fLambda -> \fApplication -> fLambda parameter body pos;
+ApplicationExpr := \function -> \argument -> \pos -> \fName -> \fString -> \fLambda -> \fApplication -> fApplication function argument pos;
+
+expr'shows := \expr -> expr
+    (\name -> \pos -> . (str'shows "NameExpr \"") (. (string'shows name) (. (str'shows "\" at ") (positionRange'shows pos))))
+    (\value -> \pos -> . (str'shows "StringExpr ") (. (string'shows (quoteString value)) (. (str'shows " at ") (positionRange'shows pos))))
+    (\parameter -> \body -> \pos ->
+        . (str'shows "LambdaExpr \"") (
+        . (string'shows parameter) (
+        . (str'shows "\" (") (
+        . (expr'shows body) (
+        . (str'shows ") at ") (
+        positionRange'shows pos))))))
+    (\function -> \argument -> \pos ->
+        . (str'shows "ApplicationExpr (") (
+        . (expr'shows function) (
+        . (str'shows ") (") (
+        . (expr'shows argument) (
+        . (str'shows ") at ") (
+        positionRange'shows pos))))))
+    ;
+
+-- data Definition = Definition { name :: String, value :: Expr, position :: PositionRange }
+Definition := \name -> \value -> \position -> \f -> f name value position;
+
+definition'shows := \definition -> definition (\name -> \value -> \pos ->
+    . (str'shows "Definition \"") (
+    . (string'shows name) (
+    . (str'shows "\" (") (
+    . (expr'shows value) (
+    . (str'shows ") at ") (
+    positionRange'shows pos))))));
+
+-- data Program = Program { names :: List Definition, expr :: Expr }
+Program := Pair;
+
+program'shows := \program -> program (\names -> \expr ->
+    . (str'shows "Program ") (
+    . (list'shows definition'shows names) (
+    . (str'shows " (") (
+    . (expr'shows expr) (
+    str'shows ")")))));
+
+-- [\r\n\t\f\v \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]
+isWhitespace := \c ->
+    || (== c " ") (|| (== c "\r") (|| (== c "\n") (|| (== c "\t") (|| (== c "\f") (|| (== c "\v") (|| (== c "\u00a0") (|| (== c "\u1680") (
+    || (== c "\u2000") (|| (== c "\u2001") (|| (== c "\u2002") (|| (== c "\u2003") (|| (== c "\u2004") (|| (== c "\u2005") (|| (== c "\u2006") (
+    || (== c "\u2007") (|| (== c "\u2008") (|| (== c "\u2009") (|| (== c "\u200a") (|| (== c "\u2028") (|| (== c "\u2029") (|| (== c "\u202f") (
+    || (== c "\u205f") (|| (== c "\u3000") (== c "\ufeff"))))))))))))))))))))))));
+
+-- [^;()"\\\s]
+isNameChar := \c -> ! (|| (== c ";") (|| (== c "(") (|| (== c ")") (|| (== c "\"") (|| (== c "\\") (isWhitespace c))))));
+
+isHexChar := \c -> (||
+    (== c "0") (|| (== c "1") (|| (== c "2") (|| (== c "3") (||
+    (== c "4") (|| (== c "5") (|| (== c "6") (|| (== c "7") (||
+    (== c "8") (|| (== c "9") (|| (== c "a") (|| (== c "b") (||
+    (== c "c") (|| (== c "d") (|| (== c "e") (== c "f"))))))))))))))));
+
+parseSpaceChar := parseIf isWhitespace;
+
+parseComment := parser'bind' (parseStr "--") (parser'many (parseIf (!= "\n")));
+
+parseSpaces := parser'map (const unit) (parser'many (parser'alt parseSpaceChar parseComment));
+
+parseName := parser'some (parseIf isNameChar);
+
+parseHexChar := parseIf isHexChar;
+
+
+parseNameExpr := parser'bind'
+    parseSpaces (parser'bind
+    parser'getPosition (\pos -> parser'bind
+    parseName (\name -> parser'bind
+    parser'getPosition (\pos' -> parser'pure
+    (NameExpr name (position'to pos pos'))))));
+
+parseString'handleChar := \c ->
+    lazyIf (== c "\"") (\_ -> parser'pure "\"") (\_ ->
+    lazyIf (== c "\\") (\_ -> parser'pure "\\") (\_ ->
+    lazyIf (== c "r") (\_ -> parser'pure "\r") (\_ ->
+    lazyIf (== c "n") (\_ -> parser'pure "\n") (\_ ->
+    lazyIf (== c "t") (\_ -> parser'pure "\t") (\_ ->
+    lazyIf (== c "f") (\_ -> parser'pure "\f") (\_ ->
+    lazyIf (== c "v") (\_ -> parser'pure "\v") (\_ ->
+    lazyIf (== c "u") (\_ -> parser'map (\cs -> chr (parseNumber (join "" (asArray (Cons "0" (Cons "x" cs)))))) (parser'replicate 4 parseHexChar)) (\_ ->
+    parser'error "undefined control sequence"
+    ))))))));
+
+parseString'parseValueChar := parser'alt
+    (parser'bind' (parseChar "\\") (parser'bind parseAny parseString'handleChar))
+    (parseIf (\c -> && (!= "\"" c) (!= "\\" c)));
+
+parseString'parseValue := parser'bind' (parseChar "\"") (parser'bind (parser'many parseString'parseValueChar) (\res -> parser'map (const res) (parseChar "\"")));
+
+parseStringExpr := parser'bind'
+    parseSpaces (parser'bind
+    parser'getPosition (\pos -> parser'bind
+    parseString'parseValue (\name -> parser'bind
+    parser'getPosition (\pos' -> parser'pure
+    (StringExpr name (position'to pos pos'))))));
+
+parseLambdaExpr := parser'bind'
+    parseSpaces (parser'bind
+    parser'getPosition (\pos -> parser'bind'
+    (parseChar "\\") (parser'bind'
+    parseSpaces (parser'bind
+    parseName (\parameter -> parser'bind'
+    parseSpaces (parser'bind'
+    (parseStr "->") (parser'bind
+    parseExpr (\body -> parser'bind
+    parser'getPosition (\pos' -> parser'pure
+    (LambdaExpr parameter body (position'to pos pos')))))))))));
+
+parseApplicationExpr := parser'bind'
+    parseSpaces (parser'bind
+    parser'getPosition (\pos -> parser'bind
+    parseSimpleExpr (\function -> parser'bind
+    (parser'some parseSimpleExpr) (\args -> parser'bind
+    parser'getPosition (\pos' -> parser'pure
+    (do (position'to pos pos') (\pos -> foldl' (\f -> \a -> ApplicationExpr f a pos) function args)))))));
+
+parseSimpleExpr := parser'alt parseStringExpr (parser'alt parseLambdaExpr parseNameExpr);
+parseExpr := parser'alt parseApplicationExpr parseSimpleExpr;
+
+parseDefinition := parser'bind'
+    parseSpaces (parser'bind
+    parser'getPosition (\pos -> parser'bind
+    parseName (\name -> parser'bind'
+    parseSpaces (parser'bind'
+    (parseStr ":=") (parser'bind
+    parseExpr (\value -> parser'bind'
+    parseSpaces (parser'bind'
+    (parseStr ";") (parser'bind
+    parser'getPosition (\pos' -> parser'pure
+    (Definition name value (position'to pos pos')))))))))));
+
+parseProgram := parser'bind
+    (parser'many parseDefinition) (\names -> parser'bind
+    parseExpr (\expr -> parser'pure
+    (Program names expr)));
+
+
+parse := \code -> parser'eval
+    (parser'bind parseProgram (\res ->
+        parser'bind' parseSpaces (parser'map (const res) parseEOF)))
+    (asList code);
+
+
+compile := \target -> \_ -> Left (PositionedError "not implemented" position'start);
+interpret := \_ -> Left (PositionedError "not implemented" position'start);
+
+
+main' := \_ -> either'bind
+    (parse (prompt "Code:")) (\ast ->
+    do (confirm "Compile?") (\needCompile ->
+    lazyIf needCompile
+           (\_ -> compile (prompt "Compile to?") ast)
+           (\_ -> interpret ast)));
+
+main := \_ -> main' unit
+    (\err -> alert (show' (positionedError'shows err)))
+    (\result -> alert result);
+
+
+-- show' (parserResult'shows expr'shows (parser'run parseNameExpr (asList "     \n \n -- kek lol \n \t xsdsf'23fs_sdf;     -- test comment  \n   kek")))
+-- show' (parserResult'shows expr'shows (parser'run parseStringExpr (asList "     \n \n -- kek lol \n \t \"x\\\"s\\\\d\\u044bsf'23fs_sdf\";     -- test comment  \n   kek")))
+-- show' (parserResult'shows expr'shows (parser'run parseLambdaExpr (asList "     \n \n -- kek lol \n \t  \\  \t\n xsdsf'23fs_sdf   ->  kek ;     -- test comment  \n   kek")))
+-- show' (parserResult'shows expr'shows (parser'run parseApplicationExpr (asList "     \n \n -- kek lol \n \t a \\  \t\n xsdsf'23fs_sdf   ->  kek ;     -- test comment  \n   kek")))
+-- show' (parserResult'shows definition'shows (parser'run parseDefinition (asList "     \n \n -- kek lol \n \t  oaoaoa   :=   \n a \\  \t\n xsdsf'23fs_sdf   ->  kek ;     -- test comment  \n   kek")))
+-- show' (parserResult'shows program'shows (parser'run parseProgram (asList "     \n \n -- kek lol \n \t  oaoaoa   :=   \n a \\  \t\n xsdsf'23fs_sdf   ->  kek ; oaoaoa    -- test comment  \n   kek")))
+
+main unit
+
+
+
