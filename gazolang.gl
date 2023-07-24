@@ -1,4 +1,3 @@
-
 unit := "unit";
 0 := parseNumber "0";
 1 := parseNumber "1";
@@ -308,8 +307,20 @@ parseApplicationExpr := parser'bind'
     parser'getPosition (\pos' -> parser'pure
     (do (position'to pos pos') (\pos -> foldl' (\f -> \a -> ApplicationExpr f a pos) function args)))))));
 
--- TODO braces
-parseSimpleExpr := parser'alt parseStringExpr (parser'alt parseLambdaExpr parseNameExpr);
+parseParensExpr := parser'bind
+    parseSpaces (\_ -> parser'bind'
+    (parseStr "(") (parser'bind
+    parseExpr (\expr -> parser'bind'
+    parseSpaces (parser'bind'
+    (parseStr ")") (parser'pure
+    expr)))));
+
+parseSimpleExpr := parser'alt
+    parseParensExpr (parser'alt
+    parseStringExpr (parser'alt
+    parseLambdaExpr
+    parseNameExpr));
+
 parseExpr := parser'alt parseApplicationExpr parseSimpleExpr;
 
 parseDefinition := parser'bind'
@@ -443,10 +454,11 @@ interpret := \ast -> state'eval (interpret'state ast) internalNamesContext;
 
 main' := \_ -> either'bind
     (parse (prompt "Code:")) (\ast ->
+    do (alert (join "" (asArray (Cons "Parsed as: " (Cons (show' (program'shows ast)) Nil))))) (\_ ->
     do (confirm "Compile?") (\needCompile ->
     lazyIf needCompile
            (\_ -> compile (prompt "Compile to?") ast)
-           (\_ -> interpret ast)));
+           (\_ -> interpret ast))));
 
 main := \_ -> main' unit
     (\err -> alert (show' (positionedError'shows err)))
@@ -461,6 +473,5 @@ main := \_ -> main' unit
 -- show' (parserResult'shows program'shows (parser'run parseProgram (asList "     \n \n -- kek lol \n \t  oaoaoa   :=   \n a \\  \t\n xsdsf'23fs_sdf   ->  kek ; oaoaoa    -- test comment  \n   kek")))
 
 main unit
-
 
 
