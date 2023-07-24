@@ -166,7 +166,7 @@ const boot = () => {
         const { row } = textToPosition(codeTextarea.value);
 
         let lines = '';
-        for (let i = 0; i < row * 10; ++i) {
+        for (let i = 0; i < Math.max(1, row) * 10; ++i) {
             lines += `-- ${i}\n`;
         }
 
