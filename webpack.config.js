@@ -9,14 +9,6 @@ module.exports = {
                 use: 'ts-loader',
                 exclude: /node_modules/,
             },
-            {
-                test: /\.css$/i,
-                use: ['style-loader', 'css-loader'],
-            },
-            {
-                test: /\.(png|svg|world)$/i,
-                type: 'asset/resource',
-            },
         ],
     },
     resolve: {

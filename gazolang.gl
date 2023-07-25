@@ -271,8 +271,7 @@ parseString'handleChar := \c ->
     lazyIf (== c "f") (\_ -> parser'pure "\f") (\_ ->
     lazyIf (== c "v") (\_ -> parser'pure "\v") (\_ ->
     lazyIf (== c "u") (\_ -> parser'map (\cs -> chr (parseNumber (join "" (asArray (Cons "0" (Cons "x" cs)))))) (parser'replicate 4 parseHexChar)) (\_ ->
-    parser'error "undefined control sequence"
-    ))))))));
+    parser'error "undefined control sequence"))))))));
 
 parseString'parseValueChar := parser'alt
     (parser'bind' (parseChar "\\") (parser'bind parseAny parseString'handleChar))
@@ -443,6 +442,25 @@ internalNamesContext'1ar := . evaluationState'pure;
 internalNamesContext'2ar := . internalNamesContext'1ar (. internalNamesContext'1ar);
 internalNamesContext'3ar := . (internalNamesContext'1ar internalNamesContext'2ar);
 
+-- internalNamesContext'asList :: ? -> EvaluationState (List' ?)
+internalNamesContext'asList := \x -> evaluationState'pure (foldr'
+    (\x -> \acc -> \s -> evaluationState'pure (\z -> evaluationState'pure (\_ -> evaluationState'bind
+        (s x) (\s' -> evaluationState'bind
+        (acc s) (\acc' -> evaluationState'bind
+        (acc' z) (\acc'' ->
+        s' acc''))))))
+    (\_ -> evaluationState'pure (\z -> evaluationState'pure (\_ -> evaluationState'pure z)))
+    (asList x));
+
+-- internalNamesContext'asArray :: List' ? -> EvaluationState ?
+internalNamesContext'asArray := \xs -> evaluationState'bind
+    (xs (\x -> evaluationState'pure (\acc -> evaluationState'bind
+        (acc unit) (\acc' -> evaluationState'pure
+        (Cons x acc'))))) (\xs' -> evaluationState'bind
+    (xs' Nil) (\xs'' -> evaluationState'bind
+    (xs'' unit) (\xs''' -> evaluationState'pure
+    (asArray xs'''))));
+
 internalNamesContext := evaluationContext'put
 
 -- pure values
@@ -451,14 +469,13 @@ internalNamesContext := evaluationContext'put
     "undefined" undefined (evaluationContext'put
 
 -- 1-arity functions
-    "show"      (internalNamesContext'1ar show) (evaluationContext'put
     "alert"     (internalNamesContext'1ar alert) (evaluationContext'put
     "prompt"    (internalNamesContext'1ar prompt) (evaluationContext'put
     "confirm"   (internalNamesContext'1ar confirm) (evaluationContext'put
     "toString"  (internalNamesContext'1ar toString) (evaluationContext'put
     "parseNumber" (internalNamesContext'1ar parseNumber) (evaluationContext'put
-    "asList"    (internalNamesContext'1ar asList) (evaluationContext'put
-    "asArray"   (internalNamesContext'1ar asArray) (evaluationContext'put
+    "asList"    internalNamesContext'asList (evaluationContext'put
+    "asArray"   internalNamesContext'asArray (evaluationContext'put
     "chr"       (internalNamesContext'1ar chr) (evaluationContext'put
 
 -- 2-arity functions
@@ -476,7 +493,7 @@ internalNamesContext := evaluationContext'put
     ">="        (internalNamesContext'2ar >=) (evaluationContext'put
 
 -- 3-arity functions
-    "if"        (internalNamesContext'3ar if) emptyContext))))))))))))))))))))))));
+    "if"        (internalNamesContext'3ar if) emptyContext)))))))))))))))))))))));
 
 -- interpret'state :: Program -> EvaluationState ?
 interpret'state := \ast -> ast (\names -> \expr ->

@@ -28,16 +28,18 @@ export const lookupContext = <Meta>(
     name: string,
     position: Position,
 ): unknown => {
-    if (context.names.hasOwnProperty(name)) {
-        return context.names[name];
-    }
+    for (
+        let currentContext: EvaluationContext<Meta> | undefined = context;
+        currentContext !== undefined;
+        currentContext = currentContext.previous
+    ) {
+        if (currentContext.names.hasOwnProperty(name)) {
+            return currentContext.names[name];
+        }
 
-    if (context.internalNames.hasOwnProperty(name)) {
-        return context.internalNames[name];
-    }
-
-    if (context.previous !== undefined) {
-        return lookupContext(context.previous, name, position);
+        if (currentContext.internalNames.hasOwnProperty(name)) {
+            return currentContext.internalNames[name];
+        }
     }
 
     throw evalExprError(position, callStack, `name "${name}" isn't present in context`);
