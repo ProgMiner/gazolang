@@ -346,9 +346,80 @@ parse := \code -> parser'eval
     (asList code);
 
 
--- Compilator
+-- JavaScript compiler. Assign each distinct source name a deterministic JS
+-- identifier; using the same identifier in nested lambdas gives lexical shadowing.
+js'quote := \value -> Cons "\"" (foldr' (\c -> \acc ->
+    lazyIf (== c "\\") (\_ -> Cons "\\" (Cons "\\" acc)) (\_ ->
+    lazyIf (== c "\"") (\_ -> Cons "\\" (Cons "\"" acc)) (\_ ->
+    lazyIf (== c "\n") (\_ -> Cons "\\" (Cons "n" acc)) (\_ ->
+    lazyIf (== c "\r") (\_ -> Cons "\\" (Cons "r" acc)) (\_ ->
+    lazyIf (== c "\t") (\_ -> Cons "\\" (Cons "t" acc)) (\_ ->
+    lazyIf (== c "\f") (\_ -> Cons "\\" (Cons "f" acc)) (\_ ->
+    lazyIf (== c "\v") (\_ -> Cons "\\" (Cons "v" acc)) (\_ ->
+    Cons c acc)))))))) (asList "\"") value);
 
-compile := \target -> \_ -> Left (PositionedError "not implemented" position'start);
+js'builtins := Cons "true"
+              (Cons "false"
+              (Cons "undefined"
+              (Cons "alert"
+              (Cons "prompt"
+              (Cons "confirm"
+              (Cons "toString"
+              (Cons "parseNumber"
+              (Cons "chr"
+              (Cons "join"
+              (Cons "if"
+              (Cons "asList"
+              (Cons "asArray"
+              (Cons "+"
+              (Cons "-"
+              (Cons "*"
+              (Cons "/"
+              (Cons "%"
+              (Cons "<"
+              (Cons "<="
+              (Cons ">"
+              (Cons ">="
+              (Cons "=="
+              (Cons "!="
+               Nil)))))))))))))))))))))));
+
+js'exprNames := \expr -> \names -> expr
+    (\name -> \pos -> Cons (join "" (asArray name)) names)
+    (\value -> \pos -> names)
+    (\parameter -> \body -> \pos -> Cons (join "" (asArray parameter)) (js'exprNames body names))
+    (\function -> \argument -> \pos -> js'exprNames function (js'exprNames argument names));
+
+js'nameIndex := \name -> \names -> \index -> lazyIf (== name (head names))
+    (\_ -> index)
+    (\_ -> js'nameIndex name (tail names) (+ index 1));
+js'name := \names -> \name -> str'shows (join "" (asArray (Cons "g" (Cons (toString (js'nameIndex (join "" (asArray name)) names 0)) Nil))));
+
+js'expr := \names -> \expr -> expr
+    (\name -> \pos -> js'name names name)
+    (\value -> \pos -> string'shows (js'quote value))
+    (\parameter -> \body -> \pos ->
+        . (str'shows "(") (. (js'name names parameter) (. (str'shows "=>") (
+        . (js'expr names body) (str'shows ")")))))
+    (\function -> \argument -> \pos ->
+        . (str'shows "(") (. (js'expr names function) (. (str'shows ")(") (. (js'expr names argument) (str'shows ")")))))
+    ;
+
+js'definition := \names -> \definition -> definition (\name -> \value -> \pos ->
+    . (str'shows "const ") (. (js'name names name) (
+    . (str'shows "=") (. (js'expr names value) (str'shows ";\n")))));
+
+-- Indices correspond to js'builtins above
+js'runtime := "(()=>{\nconst g0=true,g1=false,g2=undefined,g3=x=>alert(x),g4=x=>prompt(x),g5=x=>confirm(x),g6=x=>String(x),g7=x=>+x,g8=x=>String.fromCharCode(x),g9=s=>a=>a.join(s),g10=c=>t=>f=>c?t:f;\nconst g11=v=>{let r=_=>z=>_=>z;for(let i=v.length-1;i>=0;--i){const next=r;r=s=>z=>_=>s(v[i])(next(s)(z))}return r},g12=xs=>{const r=[];xs(v=>acc=>{acc();r.unshift(v)})(undefined)();return r};\nconst g13=a=>b=>a+b,g14=a=>b=>a-b,g15=a=>b=>a*b,g16=a=>b=>a/b,g17=a=>b=>a%b,g18=a=>b=>a<b,g19=a=>b=>a<=b,g20=a=>b=>a>b,g21=a=>b=>a>=b,g22=a=>b=>a===b,g23=a=>b=>a!==b;\n";
+
+compile := \target -> \ast -> lazyIf (== target "JavaScript")
+    (\_ -> ast (\definitions -> \expr -> do
+        (foldr' (\definition -> \names -> definition (\name -> \value -> \pos -> Cons (join "" (asArray name)) (js'exprNames value names)))
+                (js'exprNames expr Nil) definitions) (\sourceNames -> do
+            (++ js'builtins sourceNames) (\names -> Right (show' (
+            . (str'shows js'runtime) (. (foldr' (\definition -> \acc -> . (js'definition names definition) acc) id definitions) (
+            . (str'shows "return ") (. (js'expr names expr) (str'shows ";\n})()"))))))))))
+    (\_ -> Left (PositionedError "unknown compilation target" position'start));
 
 
 -- Interpreter
@@ -508,7 +579,7 @@ main' := \_ -> either'bind
     do (alert (join "" (asArray (Cons "Parsed as: " (Cons (show' (program'shows ast)) Nil))))) (\_ ->
     do (confirm "Compile?") (\needCompile ->
     lazyIf needCompile
-           (\_ -> compile (prompt "Compile to?") ast)
+           (\_ -> either'bind (compile (prompt "Compile to?") ast) (\code -> Right (alert code)))
            (\_ -> either'bind (interpret ast) (\result ->
                   lazyIf (!= undefined result)
                          (\_ -> Right (alert result))
@@ -527,5 +598,3 @@ main := \_ -> main' unit
 -- show' (parserResult'shows program'shows (parser'run parseProgram (asList "     \n \n -- kek lol \n \t  oaoaoa   :=   \n a \\  \t\n xsdsf'23fs_sdf   ->  kek ; oaoaoa    -- test comment  \n   kek")))
 
 main unit
-
-
